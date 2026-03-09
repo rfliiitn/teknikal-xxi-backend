@@ -6,6 +6,30 @@ const supabase = require('../supabase');
 
 const ALLOWED_DOMAIN = '@cinema21.net';
 
+// Get daftar outlet list (public - untuk halaman register)
+router.get('/outlet-list', async (req, res) => {
+  // Ambil semua outlet resmi
+  const { data: outletList } = await supabase
+    .from('outlet_list')
+    .select('nama_outlet')
+    .eq('aktif', true)
+    .order('nama_outlet', { ascending: true });
+
+  // Ambil outlet yang sudah terdaftar
+  const { data: registered } = await supabase
+    .from('users')
+    .select('nama_outlet');
+
+  const registeredNames = (registered || []).map(u => u.nama_outlet);
+
+  const result = (outletList || []).map(o => ({
+    nama_outlet: o.nama_outlet,
+    sudah_terdaftar: registeredNames.includes(o.nama_outlet)
+  }));
+
+  res.json(result);
+});
+
 // Register
 router.post('/register', async (req, res) => {
   const { email, password, nama_outlet, nama_lengkap } = req.body;
@@ -18,10 +42,21 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: `Hanya email ${ALLOWED_DOMAIN} yang diizinkan` });
   }
 
-  // Check if outlet already registered
+  // Cek outlet ada di outlet_list
+  const { data: outletValid } = await supabase
+    .from('outlet_list')
+    .select('nama_outlet')
+    .eq('nama_outlet', nama_outlet)
+    .single();
+
+  if (!outletValid) {
+    return res.status(400).json({ error: 'Outlet tidak terdaftar dalam daftar resmi' });
+  }
+
+  // Cek outlet sudah dipakai
   const { data: existing } = await supabase
     .from('users')
-    .select('id, nama_outlet')
+    .select('id')
     .eq('nama_outlet', nama_outlet)
     .single();
 
@@ -32,7 +67,7 @@ router.post('/register', async (req, res) => {
     });
   }
 
-  // Check if email already used
+  // Cek email sudah dipakai
   const { data: emailExists } = await supabase
     .from('users')
     .select('id')
@@ -47,16 +82,15 @@ router.post('/register', async (req, res) => {
 
   const { data, error } = await supabase
     .from('users')
-    .insert([{ email, password: hashed, nama_outlet, nama_lengkap, role: 'user' }])
+    .insert([{ email, password: hashed, nama_outlet, nama_lengkap, role: 'user', is_active: true }])
     .select()
     .single();
 
   if (error) return res.status(500).json({ error: error.message });
 
-  // Auto-create outlet settings
   await supabase.from('outlet_settings').insert([{
     user_id: data.id,
-    nama_outlet: nama_outlet,
+    nama_outlet,
     yang_membuat_nama: '',
     yang_membuat_divisi: '',
     yang_mengetahui_nama: '',
@@ -88,6 +122,10 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Email atau password salah' });
   }
 
+  if (!user.is_active) {
+    return res.status(403).json({ error: 'Akun Anda telah dinonaktifkan. Hubungi admin.' });
+  }
+
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
     return res.status(401).json({ error: 'Email atau password salah' });
@@ -112,7 +150,7 @@ router.get('/me', async (req, res) => {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const { data: user } = await supabase.from('users').select('id,email,role,nama_outlet,nama_lengkap').eq('id', decoded.id).single();
+    const { data: user } = await supabase.from('users').select('id,email,role,nama_outlet,nama_lengkap,is_active').eq('id', decoded.id).single();
     res.json(user);
   } catch {
     res.status(401).json({ error: 'Invalid token' });

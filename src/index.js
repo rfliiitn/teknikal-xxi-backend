@@ -8,6 +8,7 @@ const orderRoutes = require('./routes/order');
 const maintenanceRoutes = require('./routes/maintenance');
 const equipmentRoutes = require('./routes/equipment');
 const settingRoutes = require('./routes/setting');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/order', orderRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/equipment', equipmentRoutes);
 app.use('/api/setting', settingRoutes);
+app.use('/api/admin', adminRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
