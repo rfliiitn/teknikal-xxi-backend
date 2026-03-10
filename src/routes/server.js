@@ -7,11 +7,10 @@ router.use(authMiddleware);
 const TABLE_NAME = 'servers';
 const AAM_NAME = 'AAM LIBRARY';
 
-// Auto-create AAM LIBRARY jika belum ada
 const ensureAAM = async (user_id) => {
   const { data } = await supabase.from(TABLE_NAME)
-    .select('id').eq('user_id', user_id).ilike('type_server', AAM_NAME).single();
-  if (!data) {
+    .select('id').eq('user_id', user_id).ilike('type_server', AAM_NAME);
+  if (!data || data.length === 0) {
     await supabase.from(TABLE_NAME).insert([{
       user_id, type_server: AAM_NAME, deleted: false, is_aam: true
     }]);
@@ -22,37 +21,39 @@ router.get('/', async (req, res) => {
   await ensureAAM(req.user.id);
   const { data, error } = await supabase.from(TABLE_NAME)
     .select('*').eq('user_id', req.user.id).eq('deleted', false)
-    .order('is_aam', { ascending: false })
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  // AAM selalu paling atas
+  const sorted = [...(data || [])].sort((a, b) => (b.is_aam ? 1 : 0) - (a.is_aam ? 1 : 0));
+  res.json(sorted);
 });
 
-// GET servers yang terdaftar di studios (untuk dropdown FilmTab)
+// Server yang terdaftar di studios + AAM Library
 router.get('/in-studio', async (req, res) => {
   await ensureAAM(req.user.id);
-  // Ambil semua server_id dari studios user ini
+
+  // 1. Ambil semua servers user
+  const { data: allServers, error: sErr } = await supabase.from(TABLE_NAME)
+    .select('*').eq('user_id', req.user.id).eq('deleted', false);
+  if (sErr) return res.status(500).json({ error: sErr.message });
+
+  // 2. Ambil semua studios user
   const { data: studios, error: stErr } = await supabase.from('studios')
-    .select('server_id').eq('user_id', req.user.id).eq('deleted', false).not('server_id', 'is', null);
+    .select('server_id, studio_number').eq('user_id', req.user.id).eq('deleted', false);
   if (stErr) return res.status(500).json({ error: stErr.message });
 
-  const serverIds = [...new Set(studios.map(s => s.server_id))];
+  // 3. Buat map server_id -> studio_number
+  const studioMap = {};
+  (studios || []).forEach(s => { if (s.server_id) studioMap[s.server_id] = s.studio_number; });
 
-  // Ambil AAM Library juga (selalu masuk)
-  const { data: aamData } = await supabase.from(TABLE_NAME)
-    .select('id').eq('user_id', req.user.id).ilike('type_server', AAM_NAME).single();
+  // 4. Filter: hanya server yang ada di studio atau AAM
+  const studioServerIds = new Set(Object.keys(studioMap));
+  const result = (allServers || [])
+    .filter(sv => sv.is_aam || studioServerIds.has(sv.id))
+    .map(sv => ({ ...sv, studio_number: studioMap[sv.id] || null }))
+    .sort((a, b) => (b.is_aam ? 1 : 0) - (a.is_aam ? 1 : 0));
 
-  const allIds = aamData ? [...new Set([...serverIds, aamData.id])] : serverIds;
-
-  if (allIds.length === 0) return res.json([]);
-
-  const { data, error } = await supabase.from(TABLE_NAME)
-    .select('*, studios(studio_number)')
-    .in('id', allIds).eq('deleted', false)
-    .order('is_aam', { ascending: false })
-    .order('created_at', { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(result);
 });
 
 router.get('/trash', async (req, res) => {
@@ -69,7 +70,6 @@ router.post('/', async (req, res) => {
 });
 
 router.put('/:id', async (req, res) => {
-  // Cek apakah AAM — kalau iya, hanya boleh edit kapasitas dan size_terpakai
   const { data: existing } = await supabase.from(TABLE_NAME).select('is_aam').eq('id', req.params.id).single();
   let payload = req.body;
   if (existing?.is_aam) {
@@ -83,7 +83,6 @@ router.put('/:id', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-  // Cek AAM — tidak boleh dihapus
   const { data: existing } = await supabase.from(TABLE_NAME).select('is_aam').eq('id', req.params.id).single();
   if (existing?.is_aam) return res.status(403).json({ error: 'AAM Library tidak dapat dihapus' });
   const { data, error } = await supabase.from(TABLE_NAME)
