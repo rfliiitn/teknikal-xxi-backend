@@ -7,6 +7,10 @@ const filmRoutes = require('./routes/film');
 const orderRoutes = require('./routes/order');
 const maintenanceRoutes = require('./routes/maintenance');
 const equipmentRoutes = require('./routes/equipment');
+const studioRoutes = require('./routes/studio');
+const projectorRoutes = require('./routes/projector');
+const serverRoutes = require('./routes/server');
+const acRoutes = require('./routes/ac');
 const settingRoutes = require('./routes/setting');
 const adminRoutes = require('./routes/admin');
 
@@ -25,6 +29,10 @@ app.use('/api/film', filmRoutes);
 app.use('/api/order', orderRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/equipment', equipmentRoutes);
+app.use('/api/studio', studioRoutes);
+app.use('/api/projector', projectorRoutes);
+app.use('/api/server', serverRoutes);
+app.use('/api/ac', acRoutes);
 app.use('/api/setting', settingRoutes);
 app.use('/api/admin', adminRoutes);
 
