@@ -42,16 +42,33 @@ router.get('/in-studio', async (req, res) => {
     .select('server_id, studio_number').eq('user_id', req.user.id).eq('deleted', false);
   if (stErr) return res.status(500).json({ error: stErr.message });
 
-  // 3. Buat map server_id -> studio_number
+  // 3. Buat map server_id -> [studio_number, ...] (bisa lebih dari 1)
   const studioMap = {};
-  (studios || []).forEach(s => { if (s.server_id) studioMap[s.server_id] = s.studio_number; });
+  (studios || []).forEach(s => {
+    if (s.server_id) {
+      if (!studioMap[s.server_id]) studioMap[s.server_id] = [];
+      studioMap[s.server_id].push(s.studio_number);
+    }
+  });
 
-  // 4. Filter: hanya server yang ada di studio atau AAM
+  // 4. Expand: server yang dipakai di N studio jadi N baris
   const studioServerIds = new Set(Object.keys(studioMap));
-  const result = (allServers || [])
-    .filter(sv => sv.is_aam || studioServerIds.has(sv.id))
-    .map(sv => ({ ...sv, studio_number: studioMap[sv.id] || null }))
-    .sort((a, b) => (b.is_aam ? 1 : 0) - (a.is_aam ? 1 : 0));
+  const result = [];
+  (allServers || []).forEach(sv => {
+    if (sv.is_aam) {
+      result.push({ ...sv, studio_number: null });
+    } else if (studioServerIds.has(sv.id)) {
+      const studioNums = studioMap[sv.id];
+      studioNums.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+      studioNums.forEach(num => result.push({ ...sv, studio_number: num }));
+    }
+  });
+
+  result.sort((a, b) => {
+    if (a.is_aam) return -1;
+    if (b.is_aam) return 1;
+    return String(a.studio_number).localeCompare(String(b.studio_number), undefined, { numeric: true });
+  });
 
   res.json(result);
 });
