@@ -39,7 +39,7 @@ router.get('/in-studio', async (req, res) => {
 
   // 2. Ambil semua studios user
   const { data: studios, error: stErr } = await supabase.from('studios')
-    .select('server_id, studio_number, server_unit, size_terpakai_unit').eq('user_id', req.user.id).eq('deleted', false);
+    .select('server_id, studio_number, server_unit, size_terpakai_unit, kapasitas_unit').eq('user_id', req.user.id).eq('deleted', false);
   if (stErr) return res.status(500).json({ error: stErr.message });
 
   // 3. Map server_id -> list { studio_number, server_unit, size_terpakai_unit }
@@ -50,7 +50,8 @@ router.get('/in-studio', async (req, res) => {
       studioMap[s.server_id].push({
         studio_number: s.studio_number,
         server_unit: s.server_unit || null,
-        size_terpakai_unit: s.size_terpakai_unit || null,
+        size_terpakai_unit: s.size_terpakai_unit ?? null,
+        kapasitas_unit: s.kapasitas_unit ?? null,
       });
     }
   });
@@ -68,9 +69,10 @@ router.get('/in-studio', async (req, res) => {
         ...sv,
         studio_number: e.studio_number,
         server_unit: e.server_unit,
-        size_terpakai: e.size_terpakai_unit !== null ? e.size_terpakai_unit : sv.size_terpakai,
-        // key unik untuk update
-        studio_server_key: `${sv.id}__${e.server_unit ?? e.studio_number}`,
+        // size_terpakai per studio (override server global)
+        size_terpakai: e.size_terpakai_unit !== null && e.size_terpakai_unit !== undefined
+          ? e.size_terpakai_unit : sv.size_terpakai,
+        studio_server_key: `${sv.id}__${e.studio_number}`,
       }));
     }
   });
