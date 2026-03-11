@@ -39,28 +39,39 @@ router.get('/in-studio', async (req, res) => {
 
   // 2. Ambil semua studios user
   const { data: studios, error: stErr } = await supabase.from('studios')
-    .select('server_id, studio_number').eq('user_id', req.user.id).eq('deleted', false);
+    .select('server_id, studio_number, server_unit, size_terpakai_unit').eq('user_id', req.user.id).eq('deleted', false);
   if (stErr) return res.status(500).json({ error: stErr.message });
 
-  // 3. Buat map server_id -> [studio_number, ...] (bisa lebih dari 1)
+  // 3. Map server_id -> list { studio_number, server_unit, size_terpakai_unit }
   const studioMap = {};
   (studios || []).forEach(s => {
     if (s.server_id) {
       if (!studioMap[s.server_id]) studioMap[s.server_id] = [];
-      studioMap[s.server_id].push(s.studio_number);
+      studioMap[s.server_id].push({
+        studio_number: s.studio_number,
+        server_unit: s.server_unit || null,
+        size_terpakai_unit: s.size_terpakai_unit || null,
+      });
     }
   });
 
-  // 4. Expand: server yang dipakai di N studio jadi N baris
+  // 4. Expand: tiap unit jadi baris sendiri
   const studioServerIds = new Set(Object.keys(studioMap));
   const result = [];
   (allServers || []).forEach(sv => {
     if (sv.is_aam) {
-      result.push({ ...sv, studio_number: null });
+      result.push({ ...sv, studio_number: null, server_unit: null });
     } else if (studioServerIds.has(sv.id)) {
-      const studioNums = studioMap[sv.id];
-      studioNums.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
-      studioNums.forEach(num => result.push({ ...sv, studio_number: num }));
+      const entries = studioMap[sv.id];
+      entries.sort((a, b) => String(a.studio_number).localeCompare(String(b.studio_number), undefined, { numeric: true }));
+      entries.forEach(e => result.push({
+        ...sv,
+        studio_number: e.studio_number,
+        server_unit: e.server_unit,
+        size_terpakai: e.size_terpakai_unit !== null ? e.size_terpakai_unit : sv.size_terpakai,
+        // key unik untuk update
+        studio_server_key: `${sv.id}__${e.server_unit ?? e.studio_number}`,
+      }));
     }
   });
 
@@ -98,6 +109,23 @@ router.put('/:id', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
+
+// Update size_terpakai per unit (disimpan di tabel studios)
+router.put('/:id/unit', async (req, res) => {
+  const { studio_number, server_unit, size_terpakai_unit } = req.body;
+  // Cari studios row yang sesuai server_id + server_unit
+  let query = supabase.from('studios')
+    .update({ size_terpakai_unit })
+    .eq('server_id', req.params.id)
+    .eq('user_id', req.user.id)
+    .eq('deleted', false);
+  if (server_unit) query = query.eq('server_unit', server_unit);
+  else query = query.eq('studio_number', studio_number);
+  const { data, error } = await query.select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 
 router.delete('/:id', async (req, res) => {
   const { data: existing } = await supabase.from(TABLE_NAME).select('is_aam').eq('id', req.params.id).single();
