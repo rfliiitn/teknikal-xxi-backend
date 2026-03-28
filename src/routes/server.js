@@ -117,7 +117,7 @@ router.put('/:id', async (req, res) => {
   const { data: existing } = await supabase.from(TABLE_NAME).select('is_aam').eq('id', req.params.id).single();
   let payload = req.body;
   if (existing?.is_aam) {
-    const { type_server, is_aam, deleted, ...allowed } = req.body;
+    const { is_aam, deleted, ...allowed } = req.body;
     payload = allowed;
   }
   const { data, error } = await supabase.from(TABLE_NAME).update(payload)
