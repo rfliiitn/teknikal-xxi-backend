@@ -9,11 +9,16 @@ const AAM_NAME = 'AAM LIBRARY';
 
 const ensureAAM = async (user_id) => {
   const { data } = await supabase.from(TABLE_NAME)
-    .select('id').eq('user_id', user_id).ilike('type_server', AAM_NAME);
+    .select('id, created_at').eq('user_id', user_id).ilike('type_server', AAM_NAME)
+    .order('created_at', { ascending: true });
   if (!data || data.length === 0) {
     await supabase.from(TABLE_NAME).insert([{
       user_id, type_server: AAM_NAME, deleted: false, is_aam: true
     }]);
+  } else if (data.length > 1) {
+    // Race condition cleanup: keep the oldest, delete duplicates
+    const duplicateIds = data.slice(1).map(r => r.id);
+    await supabase.from(TABLE_NAME).delete().in('id', duplicateIds);
   }
 };
 
@@ -23,8 +28,14 @@ router.get('/', async (req, res) => {
     .select('*').eq('user_id', req.user.id).eq('deleted', false)
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
+  // Deduplicate AAM: only keep first (oldest) AAM entry
+  let seen_aam = false;
+  const deduped = (data || []).filter(row => {
+    if (row.is_aam) { if (seen_aam) return false; seen_aam = true; }
+    return true;
+  });
   // AAM selalu paling atas
-  const sorted = [...(data || [])].sort((a, b) => (b.is_aam ? 1 : 0) - (a.is_aam ? 1 : 0));
+  const sorted = [...deduped].sort((a, b) => (b.is_aam ? 1 : 0) - (a.is_aam ? 1 : 0));
   res.json(sorted);
 });
 
@@ -59,8 +70,11 @@ router.get('/in-studio', async (req, res) => {
   // 4. Expand: tiap unit jadi baris sendiri
   const studioServerIds = new Set(Object.keys(studioMap));
   const result = [];
+  let aam_added = false;
   (allServers || []).forEach(sv => {
     if (sv.is_aam) {
+      if (aam_added) return; // skip duplicate AAM
+      aam_added = true;
       result.push({ ...sv, studio_number: null, server_unit: null });
     } else if (studioServerIds.has(sv.id)) {
       const entries = studioMap[sv.id];
