@@ -9,7 +9,7 @@ const AAM_NAME = 'AAM LIBRARY';
 
 const ensureAAM = async (user_id) => {
   const { data } = await supabase.from(TABLE_NAME)
-    .select('id, created_at').eq('user_id', user_id).ilike('type_server', AAM_NAME)
+    .select('id, created_at').eq('user_id', user_id).eq('is_aam', true)
     .order('created_at', { ascending: true });
   if (!data || data.length === 0) {
     await supabase.from(TABLE_NAME).insert([{
